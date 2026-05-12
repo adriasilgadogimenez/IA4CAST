@@ -101,34 +101,6 @@ def _leer_postgresql() -> pd.DataFrame:
 
         return pd.read_sql(query, engine)
 
-    # Implementacion real (descomentada solo cuando se quiera usar de verdad):
-    #
-    # import psycopg2
-    # contrasenya = descifrar_texto(cfg['contrasenya_xifrada'])
-    # conn = psycopg2.connect(
-    #     host=cfg['amfitrio'], port=cfg['port'],
-    #     dbname=cfg['bd'], user=cfg['usuari'],
-    #     password=contrasenya, sslmode=cfg['ssl'],
-    #     connect_timeout=cfg.get('timeout_segons', 30),
-    # )
-    # query = f"""
-    #     SELECT data_venda    AS "Order Date",
-    #            categoria     AS "Category",
-    #            subcategoria  AS "Sub-Category",
-    #            id_producte   AS "Product ID",
-    #            nom_producte  AS "Product Name",
-    #            quantitat     AS "Quantity"
-    #     FROM {cfg['esquema']}.{cfg['taula']}
-    # """
-    # df = pd.read_sql(query, conn)
-    # conn.close()
-    # return df
-
-    #raise NotImplementedError(
-    #   'STUB: Descomenta la implementacion real en core/data_loader.py '
-    #    'para conectar a PostgreSQL.'
-    #)
-
 
 # ----------------------------------------------------------------------
 # Carga + normalizacion + cifrado
