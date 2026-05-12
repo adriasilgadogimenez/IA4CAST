@@ -1,0 +1,35 @@
+# Configuracion por defecto de IA4CAST
+# Este fichero se copia a %APPDATA%\IA4CAST\config.yaml en el primer arranque
+# si no existe. Una vez creado alli, edita ese fichero para personalizar.
+app:
+  idioma: ca
+  retencio_logs_dies: 30
+  tema_ui: light_blue
+
+forecast:
+  horitzo_mesos: 12
+  metrica_seleccio: wape
+  cache_models: true
+  intervalo_confianza: 0.80
+
+base_dades:
+  habilitat: true
+  motor: sqlserver
+  amfitrio: localhost
+  port: 1433
+  bd: IA4CAST
+  esquema: dbo
+  taula: RDR1
+  usuari: ia4cast
+  contrasenya_xifrada: "1234"
+
+seguretat:
+  xifrar_camps:
+    - Customer Name
+    - Product Name
+  nivell_registre: INFO
+
+alertes:
+  wape_critic_pct: 40.0
+  biaix_critic_pct: 15.0
+  degradacio_pp: 10.0

@@ -1,0 +1,15 @@
+.venv/
+build/
+dist/
+installer/
+__pycache__/
+*.pyc
+*.log
+keys/
+*.key
+cache/
+pronosticos_guardados/
+sql_install_data.txt
+screenshot_*.png
+.vscode/
+.idea/
