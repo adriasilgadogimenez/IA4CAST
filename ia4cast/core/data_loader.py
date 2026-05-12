@@ -1,5 +1,5 @@
 """
-Carga de datos desde Excel/CSV/ODS o desde PostgreSQL (stub).
+Carga de datos desde Excel/CSV/ODS o desde SQL.
 
 El esquema requerido es el de la seccion 6.2 del manual:
     Order Date, Category, Sub-Category, Product ID, Product Name, Quantity
@@ -52,9 +52,9 @@ def _leer_fichero(ruta: str) -> pd.DataFrame:
     raise ValueError(f'Formato no soportado: {ext}. Usa .ods, .xlsx, .xls o .csv')
 
 
-def _leer_postgresql() -> pd.DataFrame:
+def _leer_sql() -> pd.DataFrame:
     """
-    STUB de lectura desde PostgreSQL.
+    STUB de lectura desde SQL.
 
     La estructura esta lista pero por defecto la conexion no se usa.
     Para activarla:
@@ -66,7 +66,7 @@ def _leer_postgresql() -> pd.DataFrame:
     cfg = CONFIG['base_dades']
     if not cfg.get('habilitat'):
         raise RuntimeError(
-            'La conexion a PostgreSQL esta deshabilitada. '
+            'La conexion a SQL esta deshabilitada. '
             'Activa "base_dades.habilitat: true" en config.yaml.'
         )
     else:
@@ -102,11 +102,12 @@ def _leer_postgresql() -> pd.DataFrame:
         return pd.read_sql(query, engine)
 
 
+
 # ----------------------------------------------------------------------
 # Carga + normalizacion + cifrado
 # ----------------------------------------------------------------------
 def cargar_datos(ruta_archivo: str | None = None,
-                 desde_postgresql: bool = False) -> Tuple[pd.DataFrame, pd.Timestamp, pd.Timestamp]:
+                 desde_sql: bool = False) -> Tuple[pd.DataFrame, pd.Timestamp, pd.Timestamp]:
     """
     Carga datos y devuelve (df_full, fecha_min, fecha_max).
 
@@ -120,14 +121,14 @@ def cargar_datos(ruta_archivo: str | None = None,
         df_excel['Origen'] = 'Fichero'
         dfs.append(df_excel)
 
-    if desde_postgresql:
-        df_pg = _leer_postgresql()
+    if desde_pos:
+        df_pg = _leer_sql()
         df_pg['Origen'] = 'SQL'
         dfs.append(df_pg)
 
     if not dfs:
         raise ValueError(
-            'Debes proporcionar un fichero o activar PostgreSQL.'
+            'Debes proporcionar un fichero o activar SQL.'
         )
 
     df_raw = pd.concat(dfs, ignore_index=True)
