@@ -22,12 +22,13 @@ Ruta 3 (LONG-TAIL, productos no forecasteables individualmente)
 """
 from __future__ import annotations
 
-import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
-from statsforecast import StatsForecast
-from statsforecast.models import AutoETS, CrostonSBA, TSB
+# IMPORTANTE: lightgbm y statsforecast se importan LAZY (dentro de las
+# funciones) porque son muy pesados (5-10 segundos en cargar) y no son
+# necesarios hasta que el usuario lanza un pronostico. Esto reduce el
+# tiempo de arranque de la app de ~8s a ~1s.
 
 from .config import LOG, CONFIG
 
@@ -97,6 +98,9 @@ def _forecast_regulares(df_train, ids, horizon, ic):
     y_train = df_train_real['y']
 
     # 4) Entrenar el modelo LightGBM
+    # Lazy import: lightgbm tarda ~5s en cargar, lo importamos solo cuando se necesita
+    import lightgbm as lgb
+
     modelo = lgb.LGBMRegressor(
         objective='regression',     # regresion estandar
         n_estimators=200,            # 200 arboles
@@ -202,6 +206,10 @@ def _forecast_intermitentes(df_train, ids, horizon, ic):
         return pd.DataFrame(columns=['unique_id', 'ds', 'yhat', 'yhat_min', 'yhat_max'])
 
     # Entrenar los dos modelos a la vez con statsforecast
+    # Lazy imports: statsforecast tarda en cargar
+    from statsforecast import StatsForecast
+    from statsforecast.models import CrostonSBA, TSB
+
     sf = StatsForecast(
         models=[CrostonSBA(), TSB(alpha_d=0.2, alpha_p=0.2)],
         freq='MS',
@@ -245,6 +253,10 @@ def _forecast_longtail(df_train, ids, df_class, horizon, fecha_max, ic):
     # 1) Pronostico por Sub-Category
     df_subcat = (df_train.groupby(['Sub-Category', 'ds'], as_index=False)['y'].sum()
                           .rename(columns={'Sub-Category': 'unique_id'}))
+    # Lazy imports
+    from statsforecast import StatsForecast
+    from statsforecast.models import AutoETS
+
     sf = StatsForecast(models=[AutoETS(season_length=12)], freq='MS', n_jobs=1)
     sf.fit(df_subcat)
     pred_sub = sf.predict(h=horizon)

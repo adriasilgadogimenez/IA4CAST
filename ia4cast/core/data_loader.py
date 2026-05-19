@@ -121,7 +121,7 @@ def cargar_datos(ruta_archivo: str | None = None,
         df_excel['Origen'] = 'Fichero'
         dfs.append(df_excel)
 
-    if desde_pos:
+    if desde_sql:
         df_pg = _leer_sql()
         df_pg['Origen'] = 'SQL'
         dfs.append(df_pg)
@@ -140,8 +140,11 @@ def cargar_datos(ruta_archivo: str | None = None,
 
     LOG.info('Datos leidos: %d filas', len(df_raw))
 
-    # Cifrado de campos sensibles ANTES de cualquier procesamiento
-    df_raw = cifrar_columnas(df_raw, CONFIG['seguretat']['xifrar_camps'])
+    # IMPORTANTE: NO ciframos aqui todavia. Fernet es no deterministico:
+    # el mismo texto cifrado dos veces da resultados distintos.
+    # Si ciframos antes del groupby, el mismo Product Name del fichero
+    # y de SQL quedara como dos valores diferentes y no se sumaran.
+    # El cifrado se aplica al FINAL, sobre el panel ya construido.
 
     # Normalizacion a formato largo
     df = df_raw[COLUMNAS_REQUERIDAS].copy()
@@ -178,6 +181,11 @@ def cargar_datos(ruta_archivo: str | None = None,
                             'Category', 'Sub-Category']])
 
     df_full = pd.concat(bloques, ignore_index=True)
+
+    # Cifrado AQUI, despues del groupby y la reindexacion.
+    # Ahora cada Product Name se cifra una sola vez, de forma consistente.
+    df_full = cifrar_columnas(df_full, CONFIG['seguretat']['xifrar_camps'])
+
     LOG.info('Panel construido: %d productos, %d meses (%s -> %s)',
              df_full['unique_id'].nunique(), len(idx),
              fecha_min.strftime('%Y-%m'), fecha_max.strftime('%Y-%m'))

@@ -33,6 +33,10 @@ class VentanaPrincipal(QMainWindow):
         self.setMinimumSize(1100, 720)
         self.setStyleSheet(QSS_CORPORATIVO)
 
+        # Establecer el icono de la ventana (aparece en la barra de tareas
+        # y en la esquina superior izquierda)
+        self._configurar_icono()
+
         central = QWidget()
         self.setCentralWidget(central)
         outer = QHBoxLayout(central)
@@ -127,3 +131,28 @@ class VentanaPrincipal(QMainWindow):
         self.paginas['resultados'].refrescar()
         # Cambia automaticamente a la pestana de resultados
         self.ir_a('resultados')
+
+    def _configurar_icono(self):
+        """
+        Establece el icono de la ventana. Lo busca en varias ubicaciones
+        para que funcione tanto en desarrollo como dentro del .exe empaquetado.
+        """
+        import sys
+        from pathlib import Path
+
+        # Posibles ubicaciones del icono
+        candidatos = []
+        if getattr(sys, 'frozen', False):
+            # En el .exe empaquetado, PyInstaller extrae los datos a _MEIPASS
+            base = Path(sys._MEIPASS)
+            candidatos.append(base / 'ia4cast' / 'resources' / 'icono.ico')
+            candidatos.append(Path(sys.executable).parent / 'icono.ico')
+        else:
+            # En desarrollo, relativo al fichero
+            base = Path(__file__).parent.parent.parent
+            candidatos.append(base / 'ia4cast' / 'resources' / 'icono.ico')
+
+        for ruta in candidatos:
+            if ruta.exists():
+                self.setWindowIcon(QIcon(str(ruta)))
+                return

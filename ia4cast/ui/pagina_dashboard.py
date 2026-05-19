@@ -231,7 +231,7 @@ class PaginaDashboard(QWidget):
         c.axes.set_xticks(range(12))
         c.axes.set_xticklabels(['E', 'F', 'M', 'A', 'M', 'J',
                                 'J', 'A', 'S', 'O', 'N', 'D'])
-        c.axes.set_xlabel('Mes'); c.axes.set_ylabel('Ano')
+        c.axes.set_xlabel('Mes'); c.axes.set_ylabel('Año')
         c.figure.colorbar(im, ax=c.axes, fraction=0.046, pad=0.04)
         c.draw()
         return c
@@ -241,11 +241,71 @@ class PaginaDashboard(QWidget):
         if not SESION.datos_listos:
             QMessageBox.warning(self, 'Sin datos', 'Carga datos primero.')
             return
+
+        # Paso 1: dialogo para que el usuario seleccione que graficos exportar
+        from PySide6.QtWidgets import (
+            QDialog, QDialogButtonBox, QCheckBox, QVBoxLayout, QLabel
+        )
+        dialogo = QDialog(self)
+        dialogo.setWindowTitle('Seleccionar graficos a exportar')
+        dialogo.setMinimumWidth(420)
+        dl = QVBoxLayout(dialogo)
+
+        titulo = QLabel('Selecciona los graficos que quieres incluir:')
+        titulo.setStyleSheet('font-weight: bold; color: #1F4E79; font-size: 11pt;')
+        dl.addWidget(titulo)
+
+        # Definicion de los graficos disponibles
+        opciones = [
+            ('top10', 'Top 10 productos por volumen'),
+            ('ventas_cat', 'Ventas por categoria'),
+            ('evolucion', 'Evolucion temporal global'),
+            ('abc_xyz', 'Distribucion ABC-XYZ'),
+            ('sbc', 'Distribucion patrones SBC'),
+            ('heatmap', 'Patron estacional (heatmap)'),
+            ('anomalias', 'Top 10 anomalias detectadas'),
+        ]
+        checkboxes = {}
+        for clave, etiqueta in opciones:
+            chk = QCheckBox(etiqueta)
+            chk.setChecked(True)  # por defecto todos marcados
+            chk.setStyleSheet('padding: 4px;')
+            checkboxes[clave] = chk
+            dl.addWidget(chk)
+
+        # Botones de seleccion rapida
+        from PySide6.QtWidgets import QHBoxLayout
+        fila_rapidos = QHBoxLayout()
+        btn_todos = QPushButton('Todos')
+        btn_todos.clicked.connect(lambda: [c.setChecked(True) for c in checkboxes.values()])
+        btn_ninguno = QPushButton('Ninguno')
+        btn_ninguno.clicked.connect(lambda: [c.setChecked(False) for c in checkboxes.values()])
+        fila_rapidos.addWidget(btn_todos)
+        fila_rapidos.addWidget(btn_ninguno)
+        fila_rapidos.addStretch()
+        dl.addLayout(fila_rapidos)
+
+        botones = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        botones.accepted.connect(dialogo.accept)
+        botones.rejected.connect(dialogo.reject)
+        dl.addWidget(botones)
+
+        if dialogo.exec() != QDialog.Accepted:
+            return  # usuario cancelo
+
+        seleccionados = [c for c, chk in checkboxes.items() if chk.isChecked()]
+        if not seleccionados:
+            QMessageBox.warning(self, 'Sin seleccion',
+                                'No has seleccionado ningun grafico.')
+            return
+
+        # Paso 2: pedir ruta de guardado
         ruta, _ = QFileDialog.getSaveFileName(
             self, 'Exportar dashboard', 'dashboard_ia4cast.png', 'PNG (*.png)'
         )
         if not ruta:
             return
+
         try:
             from ..core.classification import detectar_anomalias
 
@@ -254,126 +314,153 @@ class PaginaDashboard(QWidget):
             df_full = SESION.df_full
             df_class = SESION.df_class
 
-            # Componer una figura GRANDE con TODOS los graficos del dashboard
-            # Layout: 4 filas x 2 columnas para que entre todo
-            fig = Figure(figsize=(20, 22), facecolor='white')
+            # Calcular layout segun numero de graficos seleccionados
+            n = len(seleccionados)
+            # Si las anomalias estan seleccionadas, ocupan toda una fila aparte
+            tiene_anomalias = 'anomalias' in seleccionados
+            n_graficos_normales = n - (1 if tiene_anomalias else 0)
 
-            # 1. Top 10 productos
-            ax1 = fig.add_subplot(4, 2, 1)
-            top = df_class_vis.head(10).copy()
-            top['nombre_corto'] = top['Product Name'].apply(
-                lambda s: s[:30] + '...' if len(s) > 30 else s)
-            ax1.barh(top['nombre_corto'][::-1], top['total'][::-1], color='#2E86C1')
-            ax1.set_title('Top 10 productos por volumen',
-                          fontsize=12, fontweight='bold', color='#1F4E79')
-            ax1.set_xlabel('Unidades vendidas')
-            ax1.tick_params(axis='y', labelsize=9)
-            ax1.grid(axis='x', alpha=0.3)
-
-            # 2. Ventas por categoria
-            ax2 = fig.add_subplot(4, 2, 2)
-            v = df_full.groupby('Category')['y'].sum().sort_values()
-            ax2.barh(v.index, v.values, color='#1F4E79')
-            ax2.set_title('Ventas por categoria',
-                          fontsize=12, fontweight='bold', color='#1F4E79')
-            ax2.set_xlabel('Unidades vendidas')
-            ax2.grid(axis='x', alpha=0.3)
-
-            # 3. Evolucion temporal
-            ax3 = fig.add_subplot(4, 2, 3)
-            evol = df_full.groupby('ds')['y'].sum()
-            ax3.plot(evol.index, evol.values, color='#2E86C1', lw=2,
-                     marker='o', ms=4)
-            ax3.fill_between(evol.index, evol.values, alpha=0.2, color='#2E86C1')
-            ax3.set_title('Evolucion temporal global',
-                          fontsize=12, fontweight='bold', color='#1F4E79')
-            ax3.set_ylabel('Unidades / mes')
-            ax3.grid(alpha=0.3)
-            for label in ax3.get_xticklabels():
-                label.set_rotation(30)
-                label.set_ha('right')
-
-            # 4. ABC-XYZ
-            ax4 = fig.add_subplot(4, 2, 4)
-            cross = pd.crosstab(df_class['abc'], df_class['xyz'])
-            cross = cross.reindex(index=['A', 'B', 'C'],
-                                  columns=['X', 'Y', 'Z'], fill_value=0)
-            im = ax4.imshow(cross.values, cmap='Blues', aspect='auto')
-            ax4.set_xticks(range(3)); ax4.set_xticklabels(['X', 'Y', 'Z'])
-            ax4.set_yticks(range(3)); ax4.set_yticklabels(['A', 'B', 'C'])
-            for i in range(3):
-                for j in range(3):
-                    ax4.text(j, i, str(cross.values[i, j]),
-                             ha='center', va='center', fontweight='bold',
-                             color='white' if cross.values[i, j] > cross.values.max() / 2
-                                          else 'black')
-            ax4.set_title('Distribucion ABC-XYZ',
-                          fontsize=12, fontweight='bold', color='#1F4E79')
-            ax4.set_xlabel('XYZ (variabilidad)')
-            ax4.set_ylabel('ABC (volumen)')
-            fig.colorbar(im, ax=ax4, fraction=0.046, pad=0.04)
-
-            # 5. SBC
-            ax5 = fig.add_subplot(4, 2, 5)
-            sbc = df_class['sbc_class'].value_counts()
-            orden = ['Smooth', 'Erratic', 'Intermittent', 'Lumpy']
-            sbc = sbc.reindex(orden).fillna(0)
-            colores = ['#27AE60', '#F39C12', '#3498DB', '#C0392B']
-            ax5.bar(sbc.index, sbc.values, color=colores)
-            ax5.set_title('Distribucion patrones SBC',
-                          fontsize=12, fontweight='bold', color='#1F4E79')
-            ax5.set_ylabel('Numero de productos')
-            ax5.grid(axis='y', alpha=0.3)
-            if max(sbc.values) > 0:
-                for i, val in enumerate(sbc.values):
-                    ax5.text(i, val + max(sbc.values) * 0.01, str(int(val)),
-                             ha='center', fontweight='bold')
-
-            # 6. Heatmap estacional
-            ax6 = fig.add_subplot(4, 2, 6)
-            df = df_full.copy()
-            df['anio'] = df['ds'].dt.year
-            df['mes'] = df['ds'].dt.month
-            pivot = df.pivot_table(index='anio', columns='mes', values='y',
-                                   aggfunc='sum', fill_value=0)
-            if not pivot.empty:
-                im2 = ax6.imshow(pivot.values, cmap='YlOrRd', aspect='auto')
-                ax6.set_yticks(range(len(pivot.index)))
-                ax6.set_yticklabels(pivot.index)
-                ax6.set_xticks(range(12))
-                ax6.set_xticklabels(['E', 'F', 'M', 'A', 'M', 'J',
-                                     'J', 'A', 'S', 'O', 'N', 'D'])
-                ax6.set_xlabel('Mes')
-                ax6.set_ylabel('Anio')
-                fig.colorbar(im2, ax=ax6, fraction=0.046, pad=0.04)
-            ax6.set_title('Patron estacional (heatmap)',
-                          fontsize=12, fontweight='bold', color='#1F4E79')
-
-            # 7-8. Anomalias (panel inferior, ocupando 2 columnas)
-            anomalias = detectar_anomalias(df_full, umbral_z=3.0)
-            ax7 = fig.add_subplot(4, 1, 4)
-            if anomalias.empty:
-                ax7.text(0.5, 0.5,
-                         'No se han detectado anomalias significativas.',
-                         ha='center', va='center', fontsize=11,
-                         transform=ax7.transAxes)
-                ax7.set_axis_off()
+            if n_graficos_normales == 0:
+                n_filas = 1
             else:
-                anomalias = descifrar_columnas(anomalias, ['Product Name'])
-                top10 = anomalias.assign(z_abs=anomalias['z_score'].abs()) \
-                                  .sort_values('z_abs', ascending=False).head(10)
-                etiquetas = [f"{r['Product Name'][:30]} ({r['ds'].strftime('%Y-%m')})"
-                             for _, r in top10.iterrows()]
-                colores_a = ['#C0392B' if z > 0 else '#2E86C1'
-                             for z in top10['z_score'].values]
-                ax7.barh(etiquetas[::-1], top10['z_score'].values[::-1],
-                         color=colores_a[::-1])
-                ax7.axvline(0, color='black', lw=0.5)
-                ax7.set_xlabel('Z-score (rojo=pico, azul=caida)')
-                ax7.set_title(f'Top 10 anomalias (de {len(anomalias)} detectadas)',
-                              fontsize=12, fontweight='bold', color='#1F4E79')
-                ax7.tick_params(axis='y', labelsize=9)
-                ax7.grid(axis='x', alpha=0.3)
+                n_filas = (n_graficos_normales + 1) // 2  # 2 por fila
+            if tiene_anomalias:
+                n_filas += 1
+            n_filas = max(n_filas, 1)
+
+            # Altura proporcional al numero de filas
+            fig = Figure(figsize=(20, max(6, n_filas * 5)), facecolor='white')
+
+            # Construir cada grafico solo si esta seleccionado
+            pos = 0  # posicion en la cuadricula
+
+            def siguiente_subplot():
+                nonlocal pos
+                pos += 1
+                return fig.add_subplot(n_filas, 2, pos)
+
+            if 'top10' in seleccionados:
+                ax = siguiente_subplot()
+                top = df_class_vis.head(10).copy()
+                top['nombre_corto'] = top['Product Name'].apply(
+                    lambda s: s[:30] + '...' if len(s) > 30 else s)
+                ax.barh(top['nombre_corto'][::-1], top['total'][::-1], color='#2E86C1')
+                ax.set_title('Top 10 productos por volumen',
+                             fontsize=12, fontweight='bold', color='#1F4E79')
+                ax.set_xlabel('Unidades vendidas')
+                ax.tick_params(axis='y', labelsize=9)
+                ax.grid(axis='x', alpha=0.3)
+
+            if 'ventas_cat' in seleccionados:
+                ax = siguiente_subplot()
+                v = df_full.groupby('Category')['y'].sum().sort_values()
+                ax.barh(v.index, v.values, color='#1F4E79')
+                ax.set_title('Ventas por categoria',
+                             fontsize=12, fontweight='bold', color='#1F4E79')
+                ax.set_xlabel('Unidades vendidas')
+                ax.grid(axis='x', alpha=0.3)
+
+            if 'evolucion' in seleccionados:
+                ax = siguiente_subplot()
+                evol = df_full.groupby('ds')['y'].sum()
+                ax.plot(evol.index, evol.values, color='#2E86C1', lw=2,
+                        marker='o', ms=4)
+                ax.fill_between(evol.index, evol.values, alpha=0.2, color='#2E86C1')
+                ax.set_title('Evolucion temporal global',
+                             fontsize=12, fontweight='bold', color='#1F4E79')
+                ax.set_ylabel('Unidades / mes')
+                ax.grid(alpha=0.3)
+                for label in ax.get_xticklabels():
+                    label.set_rotation(30)
+                    label.set_ha('right')
+
+            if 'abc_xyz' in seleccionados:
+                ax = siguiente_subplot()
+                cross = pd.crosstab(df_class['abc'], df_class['xyz'])
+                cross = cross.reindex(index=['A', 'B', 'C'],
+                                      columns=['X', 'Y', 'Z'], fill_value=0)
+                im = ax.imshow(cross.values, cmap='Blues', aspect='auto')
+                ax.set_xticks(range(3)); ax.set_xticklabels(['X', 'Y', 'Z'])
+                ax.set_yticks(range(3)); ax.set_yticklabels(['A', 'B', 'C'])
+                for i in range(3):
+                    for j in range(3):
+                        ax.text(j, i, str(cross.values[i, j]),
+                                ha='center', va='center', fontweight='bold',
+                                color='white' if cross.values[i, j] > cross.values.max() / 2
+                                             else 'black')
+                ax.set_title('Distribucion ABC-XYZ',
+                             fontsize=12, fontweight='bold', color='#1F4E79')
+                ax.set_xlabel('XYZ (variabilidad)')
+                ax.set_ylabel('ABC (volumen)')
+                fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+            if 'sbc' in seleccionados:
+                ax = siguiente_subplot()
+                sbc = df_class['sbc_class'].value_counts()
+                orden = ['Smooth', 'Erratic', 'Intermittent', 'Lumpy']
+                sbc = sbc.reindex(orden).fillna(0)
+                colores = ['#27AE60', '#F39C12', '#3498DB', '#C0392B']
+                ax.bar(sbc.index, sbc.values, color=colores)
+                ax.set_title('Distribucion patrones SBC',
+                             fontsize=12, fontweight='bold', color='#1F4E79')
+                ax.set_ylabel('Numero de productos')
+                ax.grid(axis='y', alpha=0.3)
+                if max(sbc.values) > 0:
+                    for i, val in enumerate(sbc.values):
+                        ax.text(i, val + max(sbc.values) * 0.01, str(int(val)),
+                                ha='center', fontweight='bold')
+
+            if 'heatmap' in seleccionados:
+                ax = siguiente_subplot()
+                df = df_full.copy()
+                df['anio'] = df['ds'].dt.year
+                df['mes'] = df['ds'].dt.month
+                pivot = df.pivot_table(index='anio', columns='mes', values='y',
+                                       aggfunc='sum', fill_value=0)
+                if not pivot.empty:
+                    im2 = ax.imshow(pivot.values, cmap='YlOrRd', aspect='auto')
+                    ax.set_yticks(range(len(pivot.index)))
+                    ax.set_yticklabels(pivot.index)
+                    ax.set_xticks(range(12))
+                    ax.set_xticklabels(['E', 'F', 'M', 'A', 'M', 'J',
+                                         'J', 'A', 'S', 'O', 'N', 'D'])
+                    ax.set_xlabel('Mes')
+                    ax.set_ylabel('Anio')
+                    fig.colorbar(im2, ax=ax, fraction=0.046, pad=0.04)
+                ax.set_title('Patron estacional (heatmap)',
+                             fontsize=12, fontweight='bold', color='#1F4E79')
+
+            # Si el numero de graficos normales es impar, llenamos el hueco
+            # para que el grafico de anomalias quede en su propia fila
+            if tiene_anomalias and n_graficos_normales % 2 == 1:
+                pos += 1  # saltar el hueco
+
+            if tiene_anomalias:
+                anomalias = detectar_anomalias(df_full, umbral_z=3.0)
+                # Anomalias siempre ocupa una fila entera (2 columnas)
+                ax = fig.add_subplot(n_filas, 1, n_filas)
+                if anomalias.empty:
+                    ax.text(0.5, 0.5,
+                            'No se han detectado anomalias significativas.',
+                            ha='center', va='center', fontsize=11,
+                            transform=ax.transAxes)
+                    ax.set_axis_off()
+                else:
+                    anomalias = descifrar_columnas(anomalias, ['Product Name'])
+                    top10 = anomalias.assign(z_abs=anomalias['z_score'].abs()) \
+                                      .sort_values('z_abs', ascending=False).head(10)
+                    etiquetas = [f"{r['Product Name'][:30]} ({r['ds'].strftime('%Y-%m')})"
+                                 for _, r in top10.iterrows()]
+                    colores_a = ['#C0392B' if z > 0 else '#2E86C1'
+                                 for z in top10['z_score'].values]
+                    ax.barh(etiquetas[::-1], top10['z_score'].values[::-1],
+                            color=colores_a[::-1])
+                    ax.axvline(0, color='black', lw=0.5)
+                    ax.set_xlabel('Z-score (rojo=pico, azul=caida)')
+                    ax.set_title(f'Top 10 anomalias (de {len(anomalias)} detectadas)',
+                                 fontsize=12, fontweight='bold', color='#1F4E79')
+                    ax.tick_params(axis='y', labelsize=9)
+                    ax.grid(axis='x', alpha=0.3)
 
             # Titulo general
             n_prod = SESION.df_class['unique_id'].nunique()
@@ -388,8 +475,11 @@ class PaginaDashboard(QWidget):
             fig.tight_layout(rect=[0, 0, 1, 0.985])
             fig.savefig(ruta, dpi=120, bbox_inches='tight', facecolor='white')
 
-            QMessageBox.information(self, 'Exportado',
-                                    f'Dashboard exportado en:\n{ruta}')
+            QMessageBox.information(
+                self, 'Exportado',
+                f'Dashboard exportado en:\n{ruta}\n\n'
+                f'{len(seleccionados)} graficos incluidos.'
+            )
         except Exception as e:
             QMessageBox.critical(self, 'Error', str(e))
             LOG.exception('Error al exportar dashboard')

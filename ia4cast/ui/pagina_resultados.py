@@ -136,6 +136,11 @@ class _TabTabla(QWidget):
             if c in df_v.columns:
                 df_v[c] = df_v[c].round(2)
 
+        # Columna NUEVA: Cantidad Pronostico (editable). Empieza igual al yhat
+        # pero el usuario puede modificarla para ajustes manuales.
+        if 'yhat' in df_v.columns:
+            df_v['cantidad_editable'] = df_v['yhat']
+
         # Renombrar para visualizacion
         renombre = {
             'unique_id': 'ID', 'Product Name': 'Nombre',
@@ -144,18 +149,36 @@ class _TabTabla(QWidget):
             'ruta': 'Modelo', 'ds': 'Fecha',
             'yhat_min': 'Min (IC)', 'yhat': 'Pronostico',
             'yhat_max': 'Max (IC)',
+            'cantidad_editable': 'Cantidad Pronostico',
         }
         df_v = df_v.rename(columns=renombre)
         self._set_modelo(df_v)
-        self.lbl_resumen.setText(f'{len(df_v)} filas mostradas.')
+        self.lbl_resumen.setText(
+            f'{len(df_v)} filas mostradas. '
+            f'La columna "Cantidad Pronostico" es editable (haz doble click).'
+        )
 
     def _set_modelo(self, df):
         modelo = QStandardItemModel(len(df), len(df.columns))
         modelo.setHorizontalHeaderLabels(list(df.columns))
+        # Identificar el indice de la columna editable
+        col_editable = None
+        cols = list(df.columns)
+        if 'Cantidad Pronostico' in cols:
+            col_editable = cols.index('Cantidad Pronostico')
+
         for i, (_, row) in enumerate(df.iterrows()):
             for j, val in enumerate(row):
                 item = QStandardItem(str(val))
-                item.setEditable(False)
+                # Solo la columna 'Cantidad Pronostico' es editable
+                item.setEditable(j == col_editable)
+                if j == col_editable:
+                    # Resaltar la columna editable
+                    from PySide6.QtGui import QColor, QFont
+                    item.setBackground(QColor('#FFF9E6'))  # amarillo muy claro
+                    font = QFont()
+                    font.setBold(True)
+                    item.setFont(font)
                 # Alineacion: numericos a la derecha
                 if isinstance(val, (int, float, np.integer, np.floating)):
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -323,7 +346,7 @@ class _TabGrafico(QWidget):
 
 
 # ============================================================
-# Tab 3 - Comparativa historica
+# Tab 3 - Comparativa historica (barras por anio)
 # ============================================================
 class _TabComparativa(QWidget):
     def __init__(self, ventana):
@@ -352,17 +375,83 @@ class _TabComparativa(QWidget):
         ctrl.addWidget(self.cb_valor)
 
         ctrl.addWidget(QLabel('Años historicos:'))
-        self.spin_anios = QSpinBox()
-        self.spin_anios.setRange(1, 6)
-        self.spin_anios.setValue(4)
-        self.spin_anios.valueChanged.connect(self._dibujar)
-        ctrl.addWidget(self.spin_anios)
+
+        self._anios_historicos = 4
+
+        # Usamos QLabel clicable en lugar de QPushButton para evitar que el
+        # QSS global de la app sobreescriba los estilos y los haga invisibles.
+        from PySide6.QtWidgets import QLabel as _QLabel
+
+        class _LabelBtn(_QLabel):
+            """QLabel que actua como boton: cambia color al pasar el raton."""
+            def __init__(self, text, callback, enabled=True):
+                super().__init__(text)
+                self._cb = callback
+                self._enabled = enabled
+                self._aplicar_estilo()
+                self.setCursor(Qt.PointingHandCursor)
+
+            def _aplicar_estilo(self):
+                color = '#2E86C1' if self._enabled else '#BDC3C7'
+                self.setStyleSheet(
+                    f'QLabel {{ color: {color}; font-size: 14pt; '
+                    f'font-weight: bold; padding: 0 4px; '
+                    f'background: transparent; border: none; }}'
+                )
+
+            def setEnabled(self, val):
+                self._enabled = val
+                self._aplicar_estilo()
+                self.setCursor(Qt.PointingHandCursor if val else Qt.ArrowCursor)
+
+            def mousePressEvent(self, ev):
+                if self._enabled:
+                    self._cb()
+
+            def enterEvent(self, ev):
+                if self._enabled:
+                    self.setStyleSheet(
+                        'QLabel { color: #1F4E79; font-size: 14pt; '
+                        'font-weight: bold; padding: 0 4px; '
+                        'background: transparent; border: none; }'
+                    )
+
+            def leaveEvent(self, ev):
+                self._aplicar_estilo()
+
+        self.btn_anios_menos = _LabelBtn('◀', lambda: self._cambiar_anios(-1),
+                                         enabled=True)   # arranca a 4, pot baixar
+        ctrl.addWidget(self.btn_anios_menos)
+
+        self.lbl_anios = QLabel('4')
+        self.lbl_anios.setAlignment(Qt.AlignCenter)
+        self.lbl_anios.setFixedWidth(22)
+        self.lbl_anios.setStyleSheet(
+            'QLabel { font-size: 11pt; font-weight: 600; color: #1F4E79; '
+            'background: transparent; border: none; }'
+        )
+        ctrl.addWidget(self.lbl_anios)
+
+        self.btn_anios_mas = _LabelBtn('▶', lambda: self._cambiar_anios(+1),
+                                       enabled=True)
+        ctrl.addWidget(self.btn_anios_mas)
 
         ctrl.addStretch()
         lay.addLayout(ctrl)
 
         self.canvas = MplCanvas(width=10, height=4)
         lay.addWidget(self.canvas)
+
+    def _cambiar_anios(self, delta: int):
+        """Incrementa o decrementa el numero de anios historicos (1 a 6)."""
+        nuevo = self._anios_historicos + delta
+        if nuevo < 1 or nuevo > 6:
+            return
+        self._anios_historicos = nuevo
+        self.lbl_anios.setText(str(nuevo))
+        self.btn_anios_menos.setEnabled(nuevo > 1)
+        self.btn_anios_mas.setEnabled(nuevo < 6)
+        self._dibujar()
 
     def refrescar(self):
         self._refrescar_valores(self.cb_nivel.currentText())
@@ -403,7 +492,7 @@ class _TabComparativa(QWidget):
         df_comp = comparativa_historica(
             SESION.df_full, SESION.pred,
             nivel=nivel_n, valor=valor,
-            n_anios_historicos=self.spin_anios.value(),
+            n_anios_historicos=self._anios_historicos,
         )
         if df_comp.empty:
             ax.text(0.5, 0.5, 'Sin datos para esta comparativa',

@@ -2,30 +2,25 @@
 """
 PyInstaller spec para IA4CAST.
 
-Genera un unico .exe en dist/IA4CAST.exe con todas las dependencias
-embebidas (incluyendo el interprete de Python).
+Para que el icono aparezca en el .exe final:
+  1) Colocar el fichero icono.ico en ia4cast/resources/icono.ico
+  2) Ejecutar:  pyinstaller IA4CAST.spec --clean --noconfirm
+  3) El .exe resultante en dist/ tendra el icono correcto
 
-Uso:
-    pyinstaller IA4CAST.spec --clean --noconfirm
-
-Tiempo aproximado: 3-8 minutos.
-Tamanio resultante: ~350-500 MB (LightGBM y statsforecast pesan).
+Importante: si Windows muestra el icono antiguo en el explorador, es por
+el cache de iconos. Reinicia explorer.exe o borra %localappdata%\\IconCache.db
 """
+import os
 from PyInstaller.utils.hooks import (
-    collect_submodules,
-    collect_data_files,
-    collect_dynamic_libs,
+    collect_submodules, collect_data_files, collect_dynamic_libs,
 )
 
 
 # ---------------------------------------------------------------
-# Hidden imports: dependencias que PyInstaller no detecta de forma
-# automatica porque se cargan dinamicamente.
-# (Misma logica que la del manual seccion 3.1.1)
+# Hidden imports
 # ---------------------------------------------------------------
 hiddenimports = []
 
-# Numpy/scipy y sklearn extensiones cython
 hiddenimports += [
     'sklearn.utils._cython_blas',
     'sklearn.neighbors.typedefs',
@@ -34,32 +29,16 @@ hiddenimports += [
     'sklearn.tree._utils',
 ]
 
-# LightGBM
 hiddenimports += collect_submodules('lightgbm')
-
-# StatsForecast / MLForecast / utilsforecast
 hiddenimports += collect_submodules('statsforecast')
 hiddenimports += collect_submodules('mlforecast')
 hiddenimports += collect_submodules('utilsforecast')
-
-# Pandas / Numpy / Numba (statsforecast usa numba)
 hiddenimports += collect_submodules('numba')
 hiddenimports += ['numpy.core._multiarray_tests']
-
-# Pyarrow (parquet)
 hiddenimports += collect_submodules('pyarrow')
-
-# Cryptography
 hiddenimports += collect_submodules('cryptography')
-
-# Lectura de ODS
 hiddenimports += ['odf', 'odf.opendocument', 'odf.table', 'odf.text']
-
-# psycopg2 (stub, pero por si se activa)
-hiddenimports += ['psycopg2', 'psycopg2.extensions']
-
-hiddenimports += ['pyodbc']
-
+hiddenimports += ['pyodbc', 'sqlalchemy', 'urllib.parse']
 
 # ---------------------------------------------------------------
 # Datos a incluir
@@ -69,16 +48,22 @@ datas += collect_data_files('lightgbm')
 datas += collect_data_files('statsforecast')
 datas += collect_data_files('mlforecast')
 datas += collect_data_files('utilsforecast')
-# Plantilla del config por si se quiere versionar con la app
 datas += [('config/default.yaml', 'config')]
 
-# DLLs/SOs nativas (LightGBM trae la suya)
+# Incluir el icono dentro del paquete si existe
+ICONO_PATH = 'ia4cast/resources/icono.ico'
+if os.path.exists(ICONO_PATH):
+    datas += [(ICONO_PATH, 'ia4cast/resources')]
+    print(f'[IA4CAST.spec] Icono encontrado: {ICONO_PATH}')
+else:
+    print(f'[IA4CAST.spec] ATENCION: no se encuentra {ICONO_PATH}')
+
 binaries = []
 binaries += collect_dynamic_libs('lightgbm')
 
 
 # ---------------------------------------------------------------
-# Bloque de analisis
+# Analysis
 # ---------------------------------------------------------------
 a = Analysis(
     ['main.py'],
@@ -89,7 +74,6 @@ a = Analysis(
     hookspath=[],
     runtime_hooks=[],
     excludes=[
-        # Cosas que no usamos y abultan
         'tkinter', 'PyQt5', 'PyQt6', 'wx',
         'gradio', 'gradio_client',
         'IPython', 'jupyter', 'notebook',
@@ -100,6 +84,9 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
+# ---------------------------------------------------------------
+# EXE - Aqui se asigna el icono al .exe final
+# ---------------------------------------------------------------
 exe = EXE(
     pyz,
     a.scripts,
@@ -110,11 +97,10 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,                 # UPX puede romper LightGBM/numba
+    upx=False,
     runtime_tmpdir=None,
-    console=False,             # ventana sin consola
+    console=False,
     disable_windowed_traceback=False,
-    icon='ia4cast/resources/icono.ico'   # opcional
-                              if __import__('os').path.exists('ia4cast/resources/icono.ico')
-                              else None,
+    icon=ICONO_PATH if os.path.exists(ICONO_PATH) else None,
+    version=None,
 )

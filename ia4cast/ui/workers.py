@@ -1,8 +1,8 @@
 """
 Workers en hilos para no bloquear la UI durante operaciones lentas.
 
-VERSION 2: usa QThread heredando directamente, con run() en lugar de
-moveToThread + Signal(object, ...). Mas robusto en Windows.
+Usa QThread heredando directamente y emite senales tipadas object,
+que es el patron mas robusto en Windows.
 """
 from __future__ import annotations
 
@@ -27,10 +27,12 @@ class CargaWorker(QThread):
     error = Signal(str)
 
     def __init__(self, ruta_archivo: Optional[str] = None,
-                 desde_postgresql: bool = False, parent=None):
+                 desde_sql: bool = False, parent=None):
         super().__init__(parent)
         self.ruta_archivo = ruta_archivo
-        self.desde_postgresql = desde_postgresql
+        # El parametro externo se llama 'desde_sql' por compatibilidad
+        # historica, pero internamente el data_loader usa 'desde_sql'.
+        self.desde_sql = desde_sql
 
     def run(self):
         try:
@@ -38,7 +40,7 @@ class CargaWorker(QThread):
             self.progreso.emit(10, 'Leyendo fichero...')
             df_full, fmin, fmax = cargar_datos(
                 ruta_archivo=self.ruta_archivo,
-                desde_postgresql=self.desde_postgresql,
+                desde_sql=self.desde_sql,
             )
             self.progreso.emit(60, 'Clasificando productos (ABC-XYZ + SBC)...')
             df_class = clasificar_productos(df_full)
@@ -69,7 +71,7 @@ class ForecastWorker(QThread):
     def run(self):
         try:
             LOG.info('ForecastWorker.run() iniciado')
-            self.progreso.emit(20, 'Entrenando modelos quantile (q10/q50/q90)...')
+            self.progreso.emit(20, 'Entrenando modelos...')
             pred = ejecutar_forecast(self.df_full, self.df_class,
                                      self.horizon, ic=self.ic)
             self.progreso.emit(100, 'Pronostico generado.')
@@ -109,7 +111,7 @@ class BacktestWorker(QThread):
 
 
 # ----------------------------------------------------------------------
-# Helper: lanzar worker (ahora el worker ES un QThread, solo hay que start)
+# Helper: lanzar worker
 # ----------------------------------------------------------------------
 def lanzar_en_hilo(worker: QThread, on_finalizado, on_error,
                     on_progreso=None) -> QThread:

@@ -18,16 +18,14 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from .config import CONFIG, RUTA_CONFIG, guardar_config, LOG
+from .config import CONFIG, guardar_config, LOG
 from .security import cifrar_texto
 
 
 def _ruta_app() -> Path:
     """
     Devuelve la carpeta del .exe (donde Inno Setup ha dejado el fichero).
-
-    Cuando se ejecuta desde PyInstaller, sys.executable apunta al .exe;
-    en desarrollo, apunta al interprete de Python.
+    En PyInstaller sys.executable apunta al .exe; en desarrollo al interprete.
     """
     if getattr(sys, 'frozen', False):
         return Path(sys.executable).parent
@@ -54,44 +52,44 @@ def _probar_conexion_sql(host: str, port: int, database: str,
     """
     Intenta conectar a SQL Server. Devuelve (ok, mensaje).
 
-    Prueba primero pyodbc (Driver SQL Server nativo) y si no esta
-    disponible cae a pymssql. Si ninguno esta disponible, devuelve
-    error sin abortar.
+    Usa ODBC Driver 18 for SQL Server con TrustServerCertificate=yes,
+    igual que el data_loader.py y db_config.py.
     """
-    # Intento 1: pyodbc
     try:
         import pyodbc
-        conn_str = (
-            f'DRIVER={{ODBC Driver 17 for SQL Server}};'
-            f'SERVER={host},{port};'
-            f'DATABASE={database};'
-            f'UID={user};PWD={password};'
-            f'Connection Timeout={timeout};'
-        )
-        conn = pyodbc.connect(conn_str, timeout=timeout)
-        conn.close()
-        return True, 'Conexion correcta (pyodbc)'
     except ImportError:
-        pass
-    except Exception as e:
-        # pyodbc esta pero la conexion falla
-        return False, f'Error pyodbc: {e}'
+        return False, ('No esta instalado pyodbc. '
+                       'Ejecuta: pip install pyodbc')
 
-    # Intento 2: pymssql
+    # IMPORTANTE: Driver 18 + TrustServerCertificate=yes
+    # Debe coincidir exactamente con la cadena del data_loader.py
+    conn_str = (
+        f'DRIVER={{ODBC Driver 18 for SQL Server}};'
+        f'SERVER={host};'
+        f'DATABASE={database};'
+        f'UID={user};PWD={password};'
+        f'TrustServerCertificate=yes;'
+        f'Connection Timeout={timeout};'
+    )
+
     try:
-        import pymssql
-        conn = pymssql.connect(
-            server=host, port=port, database=database,
-            user=user, password=password,
-            login_timeout=timeout,
-        )
+        conn = pyodbc.connect(conn_str, timeout=timeout)
+        cursor = conn.cursor()
+        cursor.execute('SELECT 1')
+        cursor.fetchone()
         conn.close()
-        return True, 'Conexion correcta (pymssql)'
-    except ImportError:
-        return False, ('No hay driver SQL instalado. '
-                       'Instala "pyodbc" o "pymssql" para usar SQL Server.')
+        return True, 'Conexion correcta (pyodbc driver 18)'
+    except pyodbc.Error as e:
+        msg = str(e)
+        if 'Login failed' in msg:
+            return False, 'Credenciales incorrectas (usuario o contrasena)'
+        if 'server was not found' in msg.lower() or 'network-related' in msg.lower():
+            return False, f'No se puede contactar con el servidor {host}:{port}'
+        if 'Cannot open database' in msg:
+            return False, f'La base de datos "{database}" no existe o no tienes permisos'
+        return False, f'Error de conexion: {msg[:300]}'
     except Exception as e:
-        return False, f'Error pymssql: {e}'
+        return False, f'Error inesperado: {e}'
 
 
 def procesar_datos_instalacion() -> Optional[dict]:
@@ -104,7 +102,7 @@ def procesar_datos_instalacion() -> Optional[dict]:
     """
     ruta_fichero = _ruta_app() / 'config' / 'sql_install_data.txt'
     if not ruta_fichero.exists():
-        return None  # no hay nada que procesar
+        return None
 
     LOG.info('Detectado fichero de instalacion: %s', ruta_fichero)
 
@@ -132,7 +130,6 @@ def procesar_datos_instalacion() -> Optional[dict]:
     ok, mensaje = _probar_conexion_sql(host, port, database, user, password)
 
     if ok:
-        # Conexion correcta -> guardar en config.yaml
         CONFIG['base_dades']['habilitat'] = True
         CONFIG['base_dades']['motor'] = 'sqlserver'
         CONFIG['base_dades']['amfitrio'] = host
@@ -143,19 +140,16 @@ def procesar_datos_instalacion() -> Optional[dict]:
         guardar_config(CONFIG)
         LOG.info('Conexion SQL guardada en config.yaml')
     else:
-        # Conexion fallida -> dejamos config sin tocar
         LOG.warning('Conexion SQL fallida: %s', mensaje)
         CONFIG['base_dades']['habilitat'] = False
         guardar_config(CONFIG)
 
-    # Borrar el fichero temporal SIEMPRE (haya funcionado o no)
     _borrar_fichero(ruta_fichero)
 
     return {'ok': ok, 'mensaje': mensaje, 'host': host, 'database': database}
 
 
 def _borrar_fichero(ruta: Path) -> None:
-    """Borra el fichero, suprimiendo errores."""
     try:
         ruta.unlink()
         LOG.info('Fichero de instalacion borrado: %s', ruta)
